@@ -1,0 +1,166 @@
+---
+title: "lab 8 key"
+author: "Katie Munster"
+date: "11/16/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(modelsummary)
+library(corrplot)
+library(broom)
+library(here)
+```
+
+
+### Read in slo_homes.csv
+
+```{r}
+homes <- read_csv(here("data", "slo_homes.csv"))
+# dependent variable will be the price. model how the other variables affect the price. we expect these variables to be positively correlated. ie. more bedrooms, higher price. so the number of bedrooms and price are positively correlated. expect foreclosures to have lower price
+
+# Unique(homes$city) in console
+```
+
+### Create a subset with 4 cities
+
+Task: create a subset (called homes_subset) that only contains observations where the city is:
+
+- San Luis Obispo
+- Atascadero
+- Arroyo Grande
+- Santa Maria-Orcutt
+
+```{r}
+homes_subset <- homes %>% 
+  filter(City %in% c("San Luis Obispo", "Atascadero", "Arroyo Grande", "Santa Maria-Orcutt"))
+# Check that the code is correct using unique(homes_subset$City) in the console. Did this in the console because we don't need a record of this.
+```
+
+### A little exploration
+
+Task: Using the subset you just made, create a summary table that has the mean and standard deviation of home prices grouped by city and sale status
+
+```{r, include = FALSE, eval = FALSE} 
+# the code won't be run if eval = FALSE. ie. you would not be able to call a variable in here in the future
+homes_subset %>% 
+  group_by(City, Status) %>% 
+  summarize(mean_price = mean(Price),
+            sd_price = sd(Price),
+            mean_sqft = mean(SqFt))
+
+# regular home sales in San Luis Obispo have higher mean home prices than Arroyo Grande...
+# data exploration and thinking critically before 
+
+homes_subset %>% 
+  group_by(Status) %>% 
+  summarize(mean_price = mean(Price),
+            sd_price = sd(Price),
+            mean_sqft = mean(SqFt))
+```
+
+Task: explore the relationship between square footage and home price (from homes_subset) in a scatterplot
+
+```{r}
+ggplot(data = homes_subset, aes(x=SqFt, y = Price),) +
+  geom_point() +
+  geom_smooth(method = "lm") # the line still seems about right. this one outlier does not appear to be wrecking the model. we have like 400 other points so this one point does not mess with the model trend
+
+# Overall this follows a linear relationship with positive correlation between square footage and home prices.
+# never throw out the data point. outlier. Maybe the outlier has a view, or we don't see how much land it is on / property size. Number of other factors that impact house price, such as age of house...
+```
+
+### Try a few linear models
+
+Use multiple linear regression to investigate relationships between several predictor variables and home price.
+
+Create 2 different permutations of this model:
+
+(1) Price ~ City, Bedrooms, Bathrooms, SqFt, Status (lm1)
+(2) Price ~ City, SqFt, Status (lm2)
+(3) Try another one (lm3)
+
+```{r}
+lm1 <- lm(Price ~ City + Bedrooms + Bathrooms + SqFt + Status, data = homes_subset)
+lm2 <- lm(Price ~ City + SqFt + Status, data = homes_subset)
+lm3 <- lm(Price ~ SqFt, data = homes_subset)
+
+summary(lm1)
+
+# Coefficients for lm1: 
+# - The reference level for City is Arroyo Grande. If the homes are otherwise similar, we would expect a home in San Luis Obsipo to sell for a price that is about $14,000 more than the homes in Arroyo Grande if everything else is the same.
+# - For each additional bedroom, we expect home price to decrease by about $61,000. Colinearity. Bedrooms, bathrooms, and price might be positively correlated so explore that
+
+# Adjusted R-squared: 0.5376:
+# - 53% of variance in home sale price is explained by variables in this model.
+
+# If I wanted San Luis Obispo to be the reference level:
+# Use fct_relevel to specify a new reference level
+new_homes_subset <- homes_subset %>% 
+  mutate(City = fct_relevel(City, "San Luis Obispo"))
+
+# This will use SLO as the reference level for city:
+lm_slo <- lm(Price ~ City + SqFt, data = new_homes_subset)
+summary(lm_slo)
+```
+
+### Explore correlations between quantitative variables
+
+Task: make a subset called homes_quant (starting from homes_subset) that only contains the variables Price through SqFt).
+
+```{r}
+homes_quant <- homes_subset %>% 
+  select(Price:SqFt)
+
+homes_cor <- cor(homes_quant)
+# higheset correlation between bathrooms and sqft. maybe look at that
+# others have moderate correlation
+# nothing seems like a clear concern for colinearity
+
+corrplot(homes_cor, method = "ellipse")
+
+# these variables all kind of represent square footage, so let's look at lm2 instead. (removed bedrooms and bathrooms from the model)
+# summary(lm2) in the Console
+# This model is still capturing about 52% of the variance. When I consider the balance of complexity and model fit... compare AIC values
+```
+
+### Compare AIC values
+```{r}
+AIC(lm1)
+AIC(lm2)
+# This is telling me the better model is lm1. Lower AIC value shows better fit. Model 1 is better. The added complexity is not too much of a sacrifice.
+# The AIC value should not be the tell-all thing. You need to do analysis. This is not absolute truth. Include multiple models instead.
+```
+
+### Use modelsummary() to return multiple model outputs
+
+```{r}
+modelsummary(list(lm1, lm2, lm3))
+```
+
+### Check out diagnostic plots for lm1
+
+```{r}
+plot(lm1)
+
+# first and third graph: this assumptiono f homeostacidicity seems pretty valid
+# second graph: seems like a normal distribution of residuals. the residuals are pretty normally distributed
+# last plot: outliers in the cook's distance plot should align with outliers from the regular data
+```
+
+### Use broom::augment() to return the predictions for existing observations
+```{r}
+home_predictions <- augment(lm1)
+# Contains the fitted values. What the model predicts the home would be sold for.
+# Contains the residuals values. You could do a histogram of the residual values instead of qq plot
+
+# Make a historgram of the residuals from this model (lm1)
+ggplot(data = home_predictions, aes(x = .resid)) +
+  geom_histogram()
+
+```
+
+
